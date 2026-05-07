@@ -10,8 +10,12 @@ const ICE_SERVERS = {
 
 let pc = null;
 let localStream = null;
+let remoteStream = null;
 let _onLocalStream = null;
 let _onRemoteStream = null;
+
+export function getLocalStream() { return localStream; }
+export function getRemoteStream() { return remoteStream; }
 
 export function setStreamCallbacks(onLocal, onRemote) {
     _onLocalStream = onLocal;
@@ -40,6 +44,7 @@ function createPC(targetId) {
     };
 
     pc.ontrack = ({ streams }) => {
+        remoteStream = streams[0];
         _onRemoteStream?.(streams[0]);
     };
 
@@ -163,6 +168,7 @@ export function cleanup() {
 
     pc = null;
     localStream = null;
+    remoteStream = null;
     _onLocalStream = null;
     _onRemoteStream = null;
 

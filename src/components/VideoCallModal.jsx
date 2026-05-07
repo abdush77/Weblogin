@@ -2,6 +2,8 @@ import { useEffect, useRef } from "react";
 import useCallStore from "../store/callStore";
 import {
     setStreamCallbacks,
+    getLocalStream,
+    getRemoteStream,
     answerCall,
     rejectCall,
     endCall,
@@ -30,6 +32,14 @@ export default function VideoCallModal() {
                 if (remoteRef.current) remoteRef.current.srcObject = stream;
             }
         );
+
+        // Agar stream allaqachon mavjud bo'lsa (video elementlar montajdan keyin),
+        // uni to'g'ridan-to'g'ri assign qilamiz - bu race condition ni hal qiladi
+        const existing = getLocalStream();
+        if (existing && localRef.current) localRef.current.srcObject = existing;
+
+        const existingRemote = getRemoteStream();
+        if (existingRemote && remoteRef.current) remoteRef.current.srcObject = existingRemote;
 
         return () => setStreamCallbacks(null, null);
     }, [callStatus]);

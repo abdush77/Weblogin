@@ -525,13 +525,11 @@ export default function Chat() {
         socket.emit("typing:stop", { receiverId });
 
         socket.emit("message:send", { receiverId, text }, (response) => {
-            console.log("SEND RESPONSE:", response);
-
             if (response?.message) {
                 appendMessageUnique(response.message);
             }
 
-            if (!response?.success) {
+            if (!response?.ok) {
                 console.log("Xabar yuborilmadi", response);
             }
         });
@@ -1350,13 +1348,11 @@ export default function Chat() {
                                                         "message:send",
                                                         { receiverId, text: "Assalomu alaykum 👋" },
                                                         (response) => {
-                                                            console.log("SEND RESPONSE:", response);
-
                                                             if (response?.message) {
                                                                 appendMessageUnique(response.message);
                                                             }
 
-                                                            if (response?.success) {
+                                                            if (response?.ok) {
                                                                 socket.emit("typing:stop", { receiverId });
                                                             } else {
                                                                 console.log("Xabar yuborilmadi", response);
