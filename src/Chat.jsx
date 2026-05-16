@@ -1161,7 +1161,7 @@ export default function Chat() {
         return (
             <button type="button"
                 onClick={() => { setSelectedGroup(g); setSelectedUser(null); }}
-                className={`flex w-full h-[78px] items-center gap-[12px] px-[14px] text-left transition ${active ? "bg-[#242536]" : "hover:bg-[#181923]"}`}>
+                className={`flex w-full h-[78px] items-center gap-[12px] px-[14px] text-left transition ${active ? "bg-[#2b5278]/30" : "hover:bg-white/[0.05]"}`}>
                 <div className="relative flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-full text-[24px]"
                     style={{ background: STORY_COLORS[(gid?.charCodeAt(0) || 0) % STORY_COLORS.length] }}>
                     {g.type === "channel" ? "📢" : "👥"}
@@ -1197,7 +1197,7 @@ export default function Chat() {
         const active = (selectedUser?._id || selectedUser?.id) === uid;
         const online = onlineIds.includes(uid);
         return (
-            <div className={`group relative flex h-[78px] w-full items-center px-[12px] transition ${active ? "bg-[#242536]" : "hover:bg-[#181923]"}`}>
+            <div className={`group relative flex h-[78px] w-full items-center px-[12px] transition ${active ? "bg-[#2b5278]/30" : "hover:bg-white/[0.05]"}`}>
                 <button type="button"
                     onClick={() => { setSelectedUser(u); setSelectedGroup(null); setShowArchive(false); }}
                     onDoubleClick={() => navigate(`/profile/${u._id || u.id}`)}
@@ -1269,7 +1269,7 @@ export default function Chat() {
     const activeIsEmoji = selectedGroup && (selectedGroup.type === "channel" || selectedGroup.type === "group");
 
     return (
-        <div className="h-screen w-full overflow-hidden bg-[#0c1020] text-white">
+        <div className="h-screen w-full overflow-hidden bg-[#0e1621] text-white">
             <VideoCallModal />
             <GroupCallModal myId={myId} myUsername={me?.username} />
 
@@ -1334,7 +1334,7 @@ export default function Chat() {
 
             <div className="flex h-full">
                 {/* ── Sidebar ── */}
-                <div className="w-[370px] shrink-0 border-r border-white/10 bg-[#0b0c11] flex flex-col">
+                <div className="w-[370px] shrink-0 border-r border-white/[0.08] bg-[#17212b] flex flex-col">
                     {/* Header */}
                     <div className="px-[14px] pt-[14px] pb-[8px]">
                         <div className="flex h-[34px] items-center justify-between text-white">
@@ -1356,7 +1356,7 @@ export default function Chat() {
                             </div>
                         </div>
 
-                        <div className="mt-[10px] flex h-[34px] items-center rounded-[9px] bg-[#15161d] px-[12px]">
+                        <div className="mt-[10px] flex h-[34px] items-center rounded-[9px] bg-[#0e1621] px-[12px]">
                             <span className="mr-[8px] text-[14px] text-[#767c8b]">⌕</span>
                             <input value={search} onChange={(e) => setSearch(e.target.value)}
                                 placeholder="Qidirish..."
@@ -1460,7 +1460,7 @@ export default function Chat() {
                     </div>
 
                     {/* Bottom nav */}
-                    <div className="grid h-[58px] grid-cols-4 border-t border-white/10 bg-[#101116] text-[11px] text-[#727989]">
+                    <div className="grid h-[58px] grid-cols-4 border-t border-white/[0.08] bg-[#17212b] text-[11px] text-[#727989]">
                         <button type="button" onClick={() => setSidebarTab("chats")}
                             className={`flex flex-col items-center justify-center gap-[3px] ${sidebarTab === "chats" ? "text-white" : ""}`}>
                             <span className="text-[19px]">💬</span>Chatlar
@@ -1481,14 +1481,11 @@ export default function Chat() {
                 </div>
 
                 {/* ── Main chat area ── */}
-                <div className="relative flex-1 overflow-hidden bg-[#151515]">
-                    <div className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-                        style={{ backgroundImage: "url('https://img.freepik.com/free-vector/hand-drawn-doodle-icons-set_1308-90706.jpg?semt=ais_hybrid&w=740&q=80')" }} />
-                    <div className="absolute inset-0 bg-black/40" />
+                <div className="relative flex-1 overflow-hidden bg-[#0e1621]">
 
                     <div className="relative z-10 flex h-full flex-col">
                         {/* Chat header */}
-                        <div className="relative z-30 flex h-[76px] w-full shrink-0 items-center justify-between bg-[#202938]/95 px-[24px] shadow-lg backdrop-blur-md">
+                        <div className="relative z-30 flex h-[76px] w-full shrink-0 items-center justify-between bg-[#17212b] px-[24px] shadow-lg border-b border-white/[0.06]">
                             <div className="flex items-center gap-[16px]">
                                 <div className="text-[18px] font-semibold text-white">{currentTime}</div>
 
@@ -1589,10 +1586,9 @@ export default function Chat() {
                         </div>
 
                         {/* Messages */}
-                        <div className="relative mx-auto flex-1 w-full overflow-hidden bg-[#242424]/30">
-                            <div className="absolute inset-0 opacity-[0.28] bg-[radial-gradient(circle_at_20px_20px,#fff_1px,transparent_1px)] [background-size:32px_32px]" />
+                        <div className="relative mx-auto flex-1 w-full overflow-hidden bg-[#0e1621]">
 
-                            <div className="relative z-10 h-full overflow-y-auto pb-[98px] pt-[8px]">
+                            <div className="relative z-10 h-full overflow-y-auto pb-[90px] pt-[8px]">
                                 {/* Group call banner */}
                                 {selectedGroup && (() => {
                                     const gid = selectedGroup?._id || selectedGroup?.id;
@@ -1674,7 +1670,7 @@ export default function Chat() {
                                                             {senderName}
                                                         </span>
                                                     ) : null}
-                                                    <div className={`max-w-[54%] rounded-[18px] px-[13px] py-[8px] shadow-md ${hasAudio || hasFile || isLocation ? "bg-[#122437]" : isMine ? "bg-[#3a3a3a]" : "bg-[#303030]"}`}
+                                                    <div className={`max-w-[54%] rounded-[18px] px-[13px] py-[8px] shadow-md ${hasAudio || hasFile || isLocation ? "bg-[#182533]" : isMine ? "bg-[#2b5278]" : "bg-[#182533]"}`}
                                                         style={{ maxWidth: isLocation ? "300px" : undefined, padding: isLocation ? "0" : undefined, overflow: isLocation ? "hidden" : undefined }}>
                                                         {isLocation ? (
                                                             <LocationMessage
@@ -1721,7 +1717,7 @@ export default function Chat() {
                             </div>
 
                             {/* Input bar */}
-                            <div className="absolute bottom-[24px] left-1/2 z-20 flex w-[92%] -translate-x-1/2 items-center gap-[12px]">
+                            <div className="absolute bottom-0 left-0 right-0 z-20 flex items-center gap-[12px] bg-[#17212b] border-t border-white/[0.06] px-[16px] py-[12px]">
                                 {/* Disable attachments in channel if not admin */}
                                 {selectedGroup?.type !== "channel" || (selectedGroup?.admins?.includes?.(myId)) ? (
                                     <AttachmentMenu />
@@ -1740,7 +1736,7 @@ export default function Chat() {
                                             : "Xabar yozing..."
                                     }
                                     disabled={selectedGroup?.type === "channel" && !selectedGroup?.admins?.includes?.(myId)}
-                                    className="h-[58px] flex-1 rounded-full bg-[#1e1e1e]/95 px-[24px] text-[18px] text-white outline-none placeholder:text-[#9a9a9a] disabled:opacity-50" />
+                                    className="h-[58px] flex-1 rounded-full bg-[#17212b] border border-white/[0.08] px-[24px] text-[18px] text-white outline-none placeholder:text-[#6b7a8d] focus:border-[#6258ff]/50 disabled:opacity-50 transition-colors" />
 
                                 {selectedUser ? (
                                     <button type="button" onClick={handleAudioClick}
@@ -1769,7 +1765,6 @@ export default function Chat() {
                                 </div>
                             ) : null}
 
-                            <div className="absolute bottom-[8px] left-1/2 z-20 h-[4px] w-[165px] -translate-x-1/2 rounded-full bg-white" />
                         </div>
                     </div>
                 </div>

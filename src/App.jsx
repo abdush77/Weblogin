@@ -5,42 +5,25 @@ import Chat from "./Chat";
 import UserProfile from "./UserProfile";
 import Settings from "./Settings";
 
-const App = () => {
+const Private = ({ children }) => {
   const token = localStorage.getItem("token");
-
-  return (
-    <Routes>
-      <Route
-        path="/"
-        element={token ? <Navigate to="/chat" /> : <Navigate to="/login" />}
-      />
-
-      <Route
-        path="/login"
-        element={token ? <Navigate to="/chat" /> : <Login />}
-      />
-
-      <Route
-        path="/register"
-        element={token ? <Navigate to="/chat" /> : <Register />}
-      />
-
-      <Route
-        path="/chat"
-        element={token ? <Chat /> : <Navigate to="/login" />}
-      />
-
-      <Route
-        path="/profile/:id"
-        element={token ? <UserProfile /> : <Navigate to="/login" />}
-      />
-
-      <Route
-        path="/settings"
-        element={token ? <Settings /> : <Navigate to="/login" />}
-      />
-    </Routes>
-  );
+  return token ? children : <Navigate to="/login" replace />;
 };
+
+const Public = ({ children }) => {
+  const token = localStorage.getItem("token");
+  return token ? <Navigate to="/chat" replace /> : children;
+};
+
+const App = () => (
+  <Routes>
+    <Route path="/" element={<Navigate to="/chat" replace />} />
+    <Route path="/login" element={<Public><Login /></Public>} />
+    <Route path="/register" element={<Public><Register /></Public>} />
+    <Route path="/chat" element={<Private><Chat /></Private>} />
+    <Route path="/profile/:id" element={<Private><UserProfile /></Private>} />
+    <Route path="/settings" element={<Private><Settings /></Private>} />
+  </Routes>
+);
 
 export default App;

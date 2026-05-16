@@ -117,10 +117,11 @@ export default function GroupCallModal({ myId, myUsername }) {
 
             {/* Video Grid */}
             <div
-                className="flex-1 p-4 overflow-auto"
+                className="flex-1 min-h-0 p-4 overflow-y-auto"
                 style={{
                     display: "grid",
-                    gridTemplateColumns: `repeat(${cols}, 1fr)`,
+                    gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+                    gridAutoRows: "1fr",
                     gap: 10,
                     alignContent: totalTiles <= 2 ? "center" : "start",
                 }}
