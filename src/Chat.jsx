@@ -117,6 +117,7 @@ export default function Chat() {
     const [createGroupType, setCreateGroupType] = useState("group");
     const [loadingGroups, setLoadingGroups] = useState(false);
     const [groupUnread, setGroupUnread] = useState({});
+    const [translyatsiyaNotif, setTranslyatsiyaNotif] = useState(null); // { groupId, groupName, callerName }
 
     // Live location
     const [isLiveLocation, setIsLiveLocation] = useState(false);
@@ -697,11 +698,24 @@ export default function Chat() {
 
         // ── Group call events ──
         const onGroupCallStarted = ({ groupId, callerId, callerName, participants }) => {
-            if (callerId === myId) return; // we started it, already in state
+            if (callerId === myId) return;
             setGroupHasActiveCall(groupId, {
                 callerName: callerName || "User",
                 participants: participants || [],
             });
+            const allGroups = [...useGroupStore.getState().groups, ...useGroupStore.getState().channels];
+            const grp = allGroups.find((g) => (g._id || g.id) === groupId);
+            const groupName = grp?.name || "Guruh";
+            const activeGroupId = selectedGroup?._id || selectedGroup?.id;
+            if (activeGroupId !== groupId) {
+                setTranslyatsiyaNotif({ groupId, groupName, callerName: callerName || "Admin", group: grp });
+                if (Notification.permission === "granted") {
+                    new Notification(`📡 ${groupName} — Translyatsiya boshlandi!`, {
+                        body: `${callerName || "Admin"} translyatsiya boshladi. Kirish uchun bosing.`,
+                        icon: "/favicon.ico",
+                    });
+                }
+            }
         };
 
         const onGroupCallUserJoined = ({ groupId, userId, username, participants: allParticipants }) => {
@@ -731,6 +745,7 @@ export default function Chat() {
 
         const onGroupCallEnded = ({ groupId }) => {
             removeGroupActiveCall(groupId);
+            setTranslyatsiyaNotif((prev) => prev?.groupId === groupId ? null : prev);
             const { isInCall, activeGroupId } = useGroupCallStore.getState();
             if (isInCall && activeGroupId === groupId) {
                 cleanupGroupCall();
@@ -1258,6 +1273,42 @@ export default function Chat() {
             <VideoCallModal />
             <GroupCallModal myId={myId} myUsername={me?.username} />
 
+            {/* Translyatsiya notification */}
+            {translyatsiyaNotif ? (
+                <div className="fixed top-[20px] left-1/2 z-[500] -translate-x-1/2 flex items-center gap-[14px] rounded-[20px] bg-[#1a1f2e] border border-[#6258ff]/40 px-[20px] py-[14px] shadow-[0_8px_40px_rgba(98,88,255,0.35)] backdrop-blur-md"
+                    style={{ minWidth: 320, maxWidth: 420 }}>
+                    {/* pulse icon */}
+                    <div className="relative flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-full bg-[#6258ff]/20">
+                        <span className="absolute inset-0 rounded-full bg-[#6258ff]/30 animate-ping" />
+                        <span className="text-[28px]">📡</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-semibold text-[#6258ff] uppercase tracking-wide">Translyatsiya boshlandi</p>
+                        <p className="text-[16px] font-bold text-white truncate">{translyatsiyaNotif.groupName}</p>
+                        <p className="text-[13px] text-[#aeb7c8]">{translyatsiyaNotif.callerName} boshladi</p>
+                    </div>
+                    <div className="flex flex-col gap-[8px]">
+                        <button type="button"
+                            onClick={() => {
+                                const grp = translyatsiyaNotif.group || groups.find((g) => (g._id || g.id) === translyatsiyaNotif.groupId);
+                                if (grp) { setSelectedGroup(grp); setSelectedUser(null); setSidebarTab("groups"); }
+                                const gid = translyatsiyaNotif.groupId;
+                                const callInfo = useGroupCallStore.getState().groupActiveCalls[gid];
+                                joinGroupCall(gid, translyatsiyaNotif.groupName, callInfo?.participants || [], myId, me?.username);
+                                setTranslyatsiyaNotif(null);
+                            }}
+                            className="rounded-[10px] bg-[#6258ff] px-[14px] py-[7px] text-[13px] font-bold text-white hover:bg-[#7068ff] transition">
+                            Kirish
+                        </button>
+                        <button type="button"
+                            onClick={() => setTranslyatsiyaNotif(null)}
+                            className="rounded-[10px] bg-white/10 px-[14px] py-[7px] text-[13px] text-white/70 hover:bg-white/20 transition">
+                            Yopish
+                        </button>
+                    </div>
+                </div>
+            ) : null}
+
             {/* Stories Viewer */}
             {viewingStoryIndex !== null && stories.length > 0 ? (
                 <StoriesViewer
@@ -1463,17 +1514,44 @@ export default function Chat() {
 
                                 {selectedGroup ? (
                                     <>
-                                        <button type="button"
-                                            onClick={() => {
-                                                const gid = selectedGroup?._id || selectedGroup?.id;
-                                                if (isInGroupCall && groupCallActiveGroupId === gid) return;
-                                                startGroupCall(gid, selectedGroup.name, myId, me?.username);
-                                            }}
-                                            disabled={isInGroupCall}
-                                            title="Guruh qo'ng'irog'ini boshlash"
-                                            className="flex h-[42px] w-[42px] items-center justify-center rounded-full text-[22px] text-white hover:bg-white/10 disabled:opacity-40">
-                                            📞
-                                        </button>
+                                        {(() => {
+                                            const gid = selectedGroup?._id || selectedGroup?.id;
+                                            const hasActive = !!useGroupCallStore.getState().groupActiveCalls[gid];
+                                            const isCurrent = isInGroupCall && groupCallActiveGroupId === gid;
+                                            if (isCurrent) {
+                                                return (
+                                                    <button type="button"
+                                                        onClick={() => leaveGroupCall(gid)}
+                                                        title="Translyatsiyadan chiqish"
+                                                        className="flex items-center gap-[6px] rounded-full bg-[#ff3b30] px-[14px] py-[8px] text-[13px] font-bold text-white hover:bg-[#ff5c52] transition">
+                                                        <span className="h-[8px] w-[8px] rounded-full bg-white animate-pulse" />
+                                                        Chiqish
+                                                    </button>
+                                                );
+                                            }
+                                            if (hasActive) {
+                                                return (
+                                                    <button type="button"
+                                                        onClick={() => {
+                                                            const callInfo = useGroupCallStore.getState().groupActiveCalls[gid];
+                                                            joinGroupCall(gid, selectedGroup.name, callInfo?.participants || [], myId, me?.username);
+                                                        }}
+                                                        title="Translyatsiyaga kirish"
+                                                        className="flex items-center gap-[6px] rounded-full bg-[#2ee86f] px-[14px] py-[8px] text-[13px] font-bold text-[#0b1a0f] hover:bg-[#3fff7f] transition">
+                                                        <span className="h-[8px] w-[8px] rounded-full bg-[#0b1a0f] animate-pulse" />
+                                                        Kirish
+                                                    </button>
+                                                );
+                                            }
+                                            return (
+                                                <button type="button"
+                                                    onClick={() => startGroupCall(gid, selectedGroup.name, myId, me?.username)}
+                                                    title="Translyatsiya boshlash"
+                                                    className="flex items-center gap-[6px] rounded-full bg-[#6258ff] px-[14px] py-[8px] text-[13px] font-bold text-white hover:bg-[#7068ff] transition">
+                                                    📡 Translyatsiya
+                                                </button>
+                                            );
+                                        })()}
                                         <button type="button"
                                             onClick={() => alert(`A'zolar: ${selectedGroup.members?.map((m) => m.username || m).join(", ") || "yo'q"}`)}
                                             className="flex h-[42px] w-[42px] items-center justify-center rounded-full text-[24px] text-white hover:bg-white/10">
