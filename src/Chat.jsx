@@ -4,13 +4,27 @@ import { connectSocket, disconnectSocket, getSocket } from "./socket";
 
 import useCallStore from "./store/callStore";
 import useGroupStore from "./store/groupStore";
+import useGroupCallStore from "./store/groupCallStore";
 import {
     startCall,
     handleAnswer,
     handleIceCandidate,
     cleanup,
 } from "./services/webrtc";
+import {
+    startGroupCall,
+    joinGroupCall,
+    leaveGroupCall,
+    onNewParticipantJoined,
+    handleGroupOffer,
+    handleGroupAnswer,
+    handleGroupIce,
+    removeParticipantPC,
+    cleanupGroupCall,
+} from "./services/groupWebrtc";
 import VideoCallModal from "./components/VideoCallModal";
+import GroupCallModal from "./components/GroupCallModal";
+import GroupCallBanner from "./components/GroupCallBanner";
 import StoriesViewer from "./components/StoriesViewer";
 import CreateGroupModal from "./components/CreateGroupModal";
 import LocationMessage from "./components/LocationMessage";
@@ -49,6 +63,14 @@ export default function Chat() {
         groupMessages, setGroupMessages, addGroupMessage,
         updateGroupLastMessage,
     } = useGroupStore();
+    const {
+        isInCall: isInGroupCall,
+        activeGroupId: groupCallActiveGroupId,
+        groupActiveCalls,
+        setGroupHasActiveCall,
+        updateGroupActiveCallParticipants,
+        removeGroupActiveCall,
+    } = useGroupCallStore();
 
     const [me, setMe] = useState(storedUser ? normalizeUser(storedUser) : null);
     const [users, setUsers] = useState([]);
@@ -649,18 +671,86 @@ export default function Chat() {
             });
         };
 
+        const onGroupCreated = (group) => {
+            if (group.type === "channel") {
+                setChannels((prev) => prev.some((g) => (g._id || g.id) === (group._id || group.id)) ? prev : [group, ...prev]);
+            } else {
+                setGroups((prev) => prev.some((g) => (g._id || g.id) === (group._id || group.id)) ? prev : [group, ...prev]);
+            }
+        };
+
         const onCallOffer = (data) => setIncomingCall(data);
         const onCallAnswer = ({ answer }) => handleAnswer(answer);
         const onCallIceCandidate = ({ candidate }) => handleIceCandidate(candidate);
         const onCallReject = () => { alert("Qo'ng'iroq rad etildi"); cleanup(); };
         const onCallEnd = () => { cleanup(); resetCall(); };
 
+        // ── Group call events ──
+        const onGroupCallStarted = ({ groupId, callerId, callerName, participants }) => {
+            if (callerId === myId) return; // we started it, already in state
+            setGroupHasActiveCall(groupId, {
+                callerName: callerName || "User",
+                participants: participants || [],
+            });
+        };
+
+        const onGroupCallUserJoined = ({ groupId, userId, username, participants: allParticipants }) => {
+            updateGroupActiveCallParticipants(groupId, allParticipants || []);
+            const { isInCall, activeGroupId } = useGroupCallStore.getState();
+            if (isInCall && activeGroupId === groupId && userId !== myId) {
+                onNewParticipantJoined(userId, username, groupId);
+            }
+        };
+
+        const onGroupCallUserLeft = ({ groupId, userId }) => {
+            const { groupActiveCalls } = useGroupCallStore.getState();
+            const call = groupActiveCalls[groupId];
+            if (call) {
+                const nextParticipants = (call.participants || []).filter((p) => p.userId !== userId);
+                if (nextParticipants.length === 0) {
+                    removeGroupActiveCall(groupId);
+                } else {
+                    updateGroupActiveCallParticipants(groupId, nextParticipants);
+                }
+            }
+            const { isInCall, activeGroupId } = useGroupCallStore.getState();
+            if (isInCall && activeGroupId === groupId) {
+                removeParticipantPC(userId);
+            }
+        };
+
+        const onGroupCallEnded = ({ groupId }) => {
+            removeGroupActiveCall(groupId);
+            const { isInCall, activeGroupId } = useGroupCallStore.getState();
+            if (isInCall && activeGroupId === groupId) {
+                cleanupGroupCall();
+            }
+        };
+
+        const onGroupCallOffer = ({ from, fromUsername, groupId, offer }) => {
+            const { isInCall, activeGroupId } = useGroupCallStore.getState();
+            if (isInCall && activeGroupId === groupId) {
+                handleGroupOffer(from, fromUsername, groupId, offer);
+            }
+        };
+
+        const onGroupCallAnswer = ({ from, answer }) => {
+            handleGroupAnswer(from, answer);
+        };
+
+        const onGroupCallIce = ({ from, candidate }) => {
+            handleGroupIce(from, candidate);
+        };
+
         socket.off("users:online"); socket.off("user:online"); socket.off("user:offline");
         socket.off("message:new"); socket.off("typing:start"); socket.off("typing:stop");
-        socket.off("message:read"); socket.off("group:message");
+        socket.off("message:read"); socket.off("group:message"); socket.off("group:created");
         socket.off("location:live:update"); socket.off("story:new");
         socket.off("call:offer"); socket.off("call:answer");
         socket.off("call:ice-candidate"); socket.off("call:reject"); socket.off("call:end");
+        socket.off("group:call:started"); socket.off("group:call:user:joined");
+        socket.off("group:call:user:left"); socket.off("group:call:ended");
+        socket.off("group:call:offer"); socket.off("group:call:answer"); socket.off("group:call:ice");
 
         socket.on("users:online", onUsersOnline);
         socket.on("user:online", onUserOnline);
@@ -670,6 +760,7 @@ export default function Chat() {
         socket.on("typing:stop", onTypingStop);
         socket.on("message:read", onMessageRead);
         socket.on("group:message", onGroupMessage);
+        socket.on("group:created", onGroupCreated);
         socket.on("location:live:update", onLiveLocationUpdate);
         socket.on("story:new", onNewStory);
         socket.on("call:offer", onCallOffer);
@@ -677,6 +768,13 @@ export default function Chat() {
         socket.on("call:ice-candidate", onCallIceCandidate);
         socket.on("call:reject", onCallReject);
         socket.on("call:end", onCallEnd);
+        socket.on("group:call:started", onGroupCallStarted);
+        socket.on("group:call:user:joined", onGroupCallUserJoined);
+        socket.on("group:call:user:left", onGroupCallUserLeft);
+        socket.on("group:call:ended", onGroupCallEnded);
+        socket.on("group:call:offer", onGroupCallOffer);
+        socket.on("group:call:answer", onGroupCallAnswer);
+        socket.on("group:call:ice", onGroupCallIce);
 
         return () => {
             socket.off("users:online", onUsersOnline);
@@ -687,6 +785,7 @@ export default function Chat() {
             socket.off("typing:stop", onTypingStop);
             socket.off("message:read", onMessageRead);
             socket.off("group:message", onGroupMessage);
+            socket.off("group:created", onGroupCreated);
             socket.off("location:live:update", onLiveLocationUpdate);
             socket.off("story:new", onNewStory);
             socket.off("call:offer", onCallOffer);
@@ -694,6 +793,13 @@ export default function Chat() {
             socket.off("call:ice-candidate", onCallIceCandidate);
             socket.off("call:reject", onCallReject);
             socket.off("call:end", onCallEnd);
+            socket.off("group:call:started", onGroupCallStarted);
+            socket.off("group:call:user:joined", onGroupCallUserJoined);
+            socket.off("group:call:user:left", onGroupCallUserLeft);
+            socket.off("group:call:ended", onGroupCallEnded);
+            socket.off("group:call:offer", onGroupCallOffer);
+            socket.off("group:call:answer", onGroupCallAnswer);
+            socket.off("group:call:ice", onGroupCallIce);
         };
     }, [token, selectedUser, selectedGroup, myId, setIncomingCall, resetCall]);
 
@@ -1134,6 +1240,7 @@ export default function Chat() {
     return (
         <div className="h-screen w-full overflow-hidden bg-[#0c1020] text-white">
             <VideoCallModal />
+            <GroupCallModal myId={myId} myUsername={me?.username} />
 
             {/* Stories Viewer */}
             {viewingStoryIndex !== null && stories.length > 0 ? (
@@ -1339,11 +1446,24 @@ export default function Chat() {
                                 ) : null}
 
                                 {selectedGroup ? (
-                                    <button type="button"
-                                        onClick={() => alert(`A'zolar: ${selectedGroup.members?.map((m) => m.username || m).join(", ") || "yo'q"}`)}
-                                        className="flex h-[42px] w-[42px] items-center justify-center rounded-full text-[24px] text-white hover:bg-white/10">
-                                        👁
-                                    </button>
+                                    <>
+                                        <button type="button"
+                                            onClick={() => {
+                                                const gid = selectedGroup?._id || selectedGroup?.id;
+                                                if (isInGroupCall && groupCallActiveGroupId === gid) return;
+                                                startGroupCall(gid, selectedGroup.name, myId, me?.username);
+                                            }}
+                                            disabled={isInGroupCall}
+                                            title="Guruh qo'ng'irog'ini boshlash"
+                                            className="flex h-[42px] w-[42px] items-center justify-center rounded-full text-[22px] text-white hover:bg-white/10 disabled:opacity-40">
+                                            📞
+                                        </button>
+                                        <button type="button"
+                                            onClick={() => alert(`A'zolar: ${selectedGroup.members?.map((m) => m.username || m).join(", ") || "yo'q"}`)}
+                                            className="flex h-[42px] w-[42px] items-center justify-center rounded-full text-[24px] text-white hover:bg-white/10">
+                                            👁
+                                        </button>
+                                    </>
                                 ) : null}
 
                                 <button type="button" onClick={() => setChatMenuOpen((p) => !p)}
@@ -1378,7 +1498,33 @@ export default function Chat() {
                         <div className="relative mx-auto flex-1 w-full overflow-hidden bg-[#242424]/30">
                             <div className="absolute inset-0 opacity-[0.28] bg-[radial-gradient(circle_at_20px_20px,#fff_1px,transparent_1px)] [background-size:32px_32px]" />
 
-                            <div className="relative z-10 h-full overflow-y-auto px-[22px] pb-[98px] pt-[20px]">
+                            <div className="relative z-10 h-full overflow-y-auto pb-[98px] pt-[8px]">
+                                {/* Group call banner */}
+                                {selectedGroup && (() => {
+                                    const gid = selectedGroup?._id || selectedGroup?.id;
+                                    const callInfo = groupActiveCalls[gid];
+                                    const isCurrentGroupCall = isInGroupCall && groupCallActiveGroupId === gid;
+                                    if (!callInfo && !isCurrentGroupCall) return null;
+                                    const displayInfo = callInfo || { callerName: me?.username, participants: [] };
+                                    return (
+                                        <GroupCallBanner
+                                            callInfo={displayInfo}
+                                            isInCall={isCurrentGroupCall}
+                                            onJoin={() => {
+                                                joinGroupCall(
+                                                    gid,
+                                                    selectedGroup.name,
+                                                    displayInfo.participants || [],
+                                                    myId,
+                                                    me?.username
+                                                );
+                                            }}
+                                            onLeave={() => leaveGroupCall(gid)}
+                                        />
+                                    );
+                                })()}
+
+                                <div className="px-[22px]">
                                 {loadingMessages ? (
                                     <p className="text-center text-[15px] text-white/60">Xabarlar yuklanmoqda...</p>
                                 ) : messages.length === 0 ? (
@@ -1477,6 +1623,7 @@ export default function Chat() {
                                 ) : null}
 
                                 <div ref={bottomRef} />
+                                </div>{/* end px-[22px] */}
                             </div>
 
                             {/* Input bar */}
