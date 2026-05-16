@@ -116,6 +116,7 @@ export default function Chat() {
     const [showCreateGroup, setShowCreateGroup] = useState(false);
     const [createGroupType, setCreateGroupType] = useState("group");
     const [loadingGroups, setLoadingGroups] = useState(false);
+    const [groupUnread, setGroupUnread] = useState({});
 
     // Live location
     const [isLiveLocation, setIsLiveLocation] = useState(false);
@@ -217,6 +218,7 @@ export default function Chat() {
             const normalized = normalizeUser(data);
             setMe(normalized);
             localStorage.setItem("user", JSON.stringify(normalized));
+            if (Notification.permission === "default") Notification.requestPermission();
         } catch {
             logout();
         }
@@ -296,6 +298,7 @@ export default function Chat() {
             const list = Array.isArray(data) ? data : Array.isArray(data?.messages) ? data.messages : [];
             setGroupMessages(groupId, list);
             setMessages(list);
+            setGroupUnread((prev) => ({ ...prev, [groupId]: 0 }));
         } catch (err) {
             console.log("Group messages:", err.message);
             setMessages([]);
@@ -647,6 +650,13 @@ export default function Chat() {
                     if (id && prev.some((m) => (m._id || m.id) === id)) return prev;
                     return [...prev, msg];
                 });
+            } else {
+                setGroupUnread((prev) => ({ ...prev, [groupId]: (prev[groupId] || 0) + 1 }));
+                if (Notification.permission === "granted") {
+                    const senderName = msg?.sender?.username || msg?.sender?.name || "Kimdir";
+                    const groupName = useGroupStore.getState().groups.find((g) => (g._id || g.id) === groupId)?.name || "Guruh";
+                    new Notification(`${groupName}`, { body: `${senderName}: ${msg?.text || "Xabar"}`, icon: "/favicon.ico" });
+                }
             }
         };
 
@@ -1132,23 +1142,29 @@ export default function Chat() {
         const gid = g._id || g.id;
         const active = (selectedGroup?._id || selectedGroup?.id) === gid;
         const memberCount = g.members?.length || 0;
+        const unread = groupUnread[gid] || 0;
         return (
             <button type="button"
                 onClick={() => { setSelectedGroup(g); setSelectedUser(null); }}
                 className={`flex w-full h-[78px] items-center gap-[12px] px-[14px] text-left transition ${active ? "bg-[#242536]" : "hover:bg-[#181923]"}`}>
-                <div className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-full text-[24px]"
+                <div className="relative flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-full text-[24px]"
                     style={{ background: STORY_COLORS[(gid?.charCodeAt(0) || 0) % STORY_COLORS.length] }}>
                     {g.type === "channel" ? "📢" : "👥"}
+                    {unread > 0 ? (
+                        <span className="absolute -top-[2px] -right-[2px] flex h-[20px] min-w-[20px] items-center justify-center rounded-full bg-[#6258ff] px-[5px] text-[11px] font-bold text-white">
+                            {unread > 99 ? "99+" : unread}
+                        </span>
+                    ) : null}
                 </div>
                 <div className="min-w-0 flex-1 border-b border-white/[0.06] py-[10px]">
                     <div className="flex items-center justify-between gap-2">
-                        <h3 className="truncate text-[16px] font-semibold text-white">{g.name}</h3>
+                        <h3 className={`truncate text-[16px] font-semibold ${unread > 0 ? "text-white" : "text-white"}`}>{g.name}</h3>
                         <span className="shrink-0 text-[12px] text-[#858b9b]">
                             {g.lastMessage ? formatTime(g.lastMessage.createdAt) : ""}
                         </span>
                     </div>
                     <div className="mt-[4px] flex items-center justify-between gap-2">
-                        <p className="truncate text-[13px] text-[#8b91a4]">
+                        <p className={`truncate text-[13px] ${unread > 0 ? "font-semibold text-white" : "text-[#8b91a4]"}`}>
                             {g.lastMessage?.text || `${memberCount} a'zo`}
                         </p>
                         {g.type === "channel" ? (
