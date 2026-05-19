@@ -51,6 +51,71 @@ const STORY_COLORS = [
     "linear-gradient(135deg,#f59e0b,#ef4444)",
 ];
 
+const VideoNoteMessage = ({ src, time, isMine }) => {
+    const videoRef = useRef(null);
+    const [playing, setPlaying] = useState(false);
+    const [progress, setProgress] = useState(0);
+
+    const toggle = () => {
+        const v = videoRef.current;
+        if (!v) return;
+        if (v.paused) {
+            v.play()
+                .then(() => setPlaying(true))
+                .catch(() => setPlaying(false));
+        } else {
+            v.pause();
+            setPlaying(false);
+        }
+    };
+
+    return (
+        <div className={`flex flex-col ${isMine ? "items-end" : "items-start"} gap-[6px]`}>
+            <div
+                className="relative h-[200px] w-[200px] cursor-pointer overflow-hidden rounded-full shadow-[0_4px_24px_rgba(98,88,255,0.4)]"
+                style={{ border: "3px solid", borderColor: isMine ? "#6258ff" : "#49a8e8" }}
+                onClick={toggle}>
+                <video
+                    ref={videoRef}
+                    src={src}
+                    playsInline
+                    className="h-full w-full object-cover"
+                    onEnded={() => { setPlaying(false); setProgress(0); }}
+                    onTimeUpdate={(e) => {
+                        const v = e.currentTarget;
+                        if (v.duration) setProgress(v.currentTime / v.duration);
+                    }}
+                />
+                <svg className="pointer-events-none absolute inset-0" width="200" height="200" viewBox="0 0 200 200">
+                    <circle cx="100" cy="100" r="96"
+                        fill="none"
+                        stroke={isMine ? "#6258ff" : "#49a8e8"}
+                        strokeWidth="4"
+                        opacity="0.2"
+                    />
+                    <circle cx="100" cy="100" r="96"
+                        fill="none"
+                        stroke={isMine ? "#6258ff" : "#49a8e8"}
+                        strokeWidth="4"
+                        strokeDasharray={`${progress * 603} 603`}
+                        strokeLinecap="round"
+                        transform="rotate(-90 100 100)"
+                        opacity="0.9"
+                    />
+                </svg>
+                {!playing ? (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                        <div className="flex h-[52px] w-[52px] items-center justify-center rounded-full bg-white/20 backdrop-blur-sm">
+                            <span className="ml-[3px] text-[24px] text-white">▶</span>
+                        </div>
+                    </div>
+                ) : null}
+            </div>
+            <span className="text-[12px] text-[#9e9e9e]">{time} {isMine ? "✓✓" : ""}</span>
+        </div>
+    );
+};
+
 export default function Chat() {
     const navigate = useNavigate();
     const token = localStorage.getItem("token");
@@ -130,6 +195,17 @@ export default function Chat() {
     const audioChunksRef = useRef([]);
     const streamRef = useRef(null);
     const fileInputRef = useRef(null);
+
+    // Video note state
+    const [isRecordingVideoNote, setIsRecordingVideoNote] = useState(false);
+    const [isSendingVideoNote, setIsSendingVideoNote] = useState(false);
+    const [videoNoteSeconds, setVideoNoteSeconds] = useState(0);
+    const videoNoteStreamRef = useRef(null);
+    const videoNoteRecorderRef = useRef(null);
+    const videoNoteChunksRef = useRef([]);
+    const videoNotePreviewRef = useRef(null);
+    const videoNoteTimerRef = useRef(null);
+    const videoNoteReceiverRef = useRef(null);
 
     const myId = useMemo(() => me?._id || me?.id, [me]);
 
@@ -575,6 +651,101 @@ export default function Chat() {
         isRecording ? stopRecording() : startRecording();
     };
 
+    // ──────────────────────── Video Note ────────────────────────
+
+    const startVideoNote = async () => {
+        const receiverId = selectedUser?._id || selectedUser?.id;
+        if (!receiverId) return;
+        videoNoteReceiverRef.current = receiverId;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: "user", width: 300, height: 300 },
+                audio: true,
+            });
+            videoNoteStreamRef.current = stream;
+            if (videoNotePreviewRef.current) {
+                videoNotePreviewRef.current.srcObject = stream;
+                videoNotePreviewRef.current.play().catch(() => {});
+            }
+            videoNoteChunksRef.current = [];
+            const mimeType = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"]
+                .find((t) => MediaRecorder.isTypeSupported(t)) || "video/webm";
+            const recorder = new MediaRecorder(stream, { mimeType });
+            videoNoteRecorderRef.current = recorder;
+            recorder.ondataavailable = (e) => {
+                if (e.data.size > 0) videoNoteChunksRef.current.push(e.data);
+            };
+            recorder.onstop = async () => {
+                clearInterval(videoNoteTimerRef.current);
+                setIsRecordingVideoNote(false);
+                setIsSendingVideoNote(true);
+                const rId = videoNoteReceiverRef.current;
+                try {
+                    if (!rId) {
+                        console.error("Video note: receiverId yo'q");
+                        throw new Error("Qabul qiluvchi topilmadi");
+                    }
+                    const chunks = videoNoteChunksRef.current.slice();
+                    videoNoteChunksRef.current = [];
+                    if (chunks.length === 0) {
+                        console.error("Video note: chunks bo'sh");
+                        throw new Error("Video ma'lumoti bo'sh");
+                    }
+                    const blob = new Blob(chunks, { type: "video/webm" });
+                    const formData = new FormData();
+                    formData.append("videoNote", blob, "videonote.webm");
+                    formData.append("receiverId", rId);
+                    const res = await fetch(`${API}/api/messages/video-note`, {
+                        method: "POST",
+                        headers: { Authorization: `Bearer ${token}` },
+                        body: formData,
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data?.message || "Video yuborilmadi");
+                    if (data?.message) appendMessageUnique(data.message);
+                    else console.error("Video note: server message qaytarmadi", data);
+                } catch (err) {
+                    console.error("Video note yuborish xatosi:", err);
+                    alert(`Video xabar yuborilmadi: ${err?.message || "Noma'lum xato"}`);
+                } finally {
+                    setIsSendingVideoNote(false);
+                    videoNoteStreamRef.current?.getTracks()?.forEach((t) => t.stop());
+                    videoNoteStreamRef.current = null;
+                    setVideoNoteSeconds(0);
+                    videoNoteReceiverRef.current = null;
+                }
+            };
+            recorder.start(200);
+            setIsRecordingVideoNote(true);
+            setVideoNoteSeconds(0);
+            let elapsed = 0;
+            videoNoteTimerRef.current = setInterval(() => {
+                elapsed += 1;
+                setVideoNoteSeconds(Math.min(elapsed, 60));
+                if (elapsed >= 60 && videoNoteRecorderRef.current?.state === "recording") {
+                    videoNoteRecorderRef.current.stop();
+                }
+            }, 1000);
+        } catch {
+            alert("Kameraga yoki mikrofonga ruxsat berilmadi");
+            videoNoteStreamRef.current?.getTracks()?.forEach((t) => t.stop());
+            videoNoteStreamRef.current = null;
+        }
+    };
+
+    const stopVideoNote = () => {
+        if (videoNoteRecorderRef.current?.state === "recording") {
+            videoNoteRecorderRef.current.stop();
+        } else {
+            clearInterval(videoNoteTimerRef.current);
+            videoNoteStreamRef.current?.getTracks()?.forEach((t) => t.stop());
+            videoNoteStreamRef.current = null;
+            videoNoteRecorderRef.current = null;
+            setIsRecordingVideoNote(false);
+            setVideoNoteSeconds(0);
+        }
+    };
+
     // ──────────────────────── Helpers ────────────────────────
 
     const getFileUrl = (url) => (!url ? "" : url.startsWith("http") ? url : `${API}${url}`);
@@ -590,6 +761,14 @@ export default function Chat() {
         const kb = bytes / 1024;
         return kb < 1024 ? `${kb.toFixed(1)} KB` : `${(kb / 1024).toFixed(1)} MB`;
     };
+
+    // Kamera stream'ni preview video elementga ulash (isRecordingVideoNote true bo'lganda element DOMga qo'shiladi)
+    useEffect(() => {
+        if (isRecordingVideoNote && videoNotePreviewRef.current && videoNoteStreamRef.current) {
+            videoNotePreviewRef.current.srcObject = videoNoteStreamRef.current;
+            videoNotePreviewRef.current.play().catch(() => {});
+        }
+    }, [isRecordingVideoNote]);
 
     // ──────────────────────── Effects ────────────────────────
 
@@ -1024,6 +1203,7 @@ export default function Chat() {
             </a>
         );
     };
+
 
     const AttachmentMenu = () => (
         <div className="group relative">
@@ -1588,6 +1768,63 @@ export default function Chat() {
                         {/* Messages */}
                         <div className="relative mx-auto flex-1 w-full overflow-hidden bg-[#0e1621]">
 
+                            {/* Video note recording overlay */}
+                            {isRecordingVideoNote ? (
+                                <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md">
+                                    {/* Circular camera preview */}
+                                    <div className="relative h-[260px] w-[260px] overflow-hidden rounded-full shadow-[0_0_60px_rgba(98,88,255,0.6)]"
+                                        style={{ border: "4px solid #6258ff" }}>
+                                        <video
+                                            ref={videoNotePreviewRef}
+                                            muted
+                                            playsInline
+                                            className="h-full w-full object-cover"
+                                            style={{ transform: "scaleX(-1)" }}
+                                        />
+                                        {/* Timer progress arc */}
+                                        <svg className="pointer-events-none absolute inset-0" width="260" height="260" viewBox="0 0 260 260">
+                                            <circle cx="130" cy="130" r="126"
+                                                fill="none"
+                                                stroke="#ff3b30"
+                                                strokeWidth="5"
+                                                strokeDasharray={`${(videoNoteSeconds / 60) * 791} 791`}
+                                                strokeLinecap="round"
+                                                transform="rotate(-90 130 130)"
+                                                opacity="0.9"
+                                            />
+                                        </svg>
+                                    </div>
+
+                                    {/* Timer text */}
+                                    <div className="mt-[18px] flex items-center gap-[10px]">
+                                        <span className="h-[10px] w-[10px] rounded-full bg-[#ff3b30] animate-pulse" />
+                                        <span className="text-[22px] font-bold text-white">
+                                            {String(Math.floor(videoNoteSeconds / 60)).padStart(2, "0")}:{String(videoNoteSeconds % 60).padStart(2, "0")}
+                                        </span>
+                                        <span className="text-[14px] text-white/50">/ 01:00</span>
+                                    </div>
+
+                                    {/* Stop button */}
+                                    <button
+                                        type="button"
+                                        onClick={stopVideoNote}
+                                        className="mt-[24px] flex h-[72px] w-[72px] items-center justify-center rounded-full bg-[#ff3b30] text-[32px] text-white shadow-[0_4px_24px_rgba(255,59,48,0.5)] transition active:scale-90 hover:bg-[#ff5c52]">
+                                        ⏹
+                                    </button>
+                                    <p className="mt-[12px] text-[13px] text-white/50">Yuborish uchun to'xtat</p>
+                                </div>
+                            ) : null}
+
+                            {/* Sending video note indicator */}
+                            {isSendingVideoNote ? (
+                                <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                                    <div className="flex flex-col items-center gap-[14px]">
+                                        <div className="h-[60px] w-[60px] rounded-full border-4 border-[#6258ff] border-t-transparent animate-spin" />
+                                        <span className="text-[16px] font-semibold text-white">Yuborilmoqda...</span>
+                                    </div>
+                                </div>
+                            ) : null}
+
                             <div className="relative z-10 h-full overflow-y-auto pb-[90px] pt-[8px]">
                                 {/* Group call banner */}
                                 {selectedGroup && (() => {
@@ -1657,6 +1894,7 @@ export default function Chat() {
                                         const isMine = senderId === myId;
                                         const hasAudio = Boolean(m?.audioUrl);
                                         const hasFile = Boolean(m?.fileUrl);
+                                        const hasVideoNote = Boolean(m?.videoNoteUrl);
                                         const isLocation = m?.type === "location" || m?.type === "live_location";
                                         const senderName = m?.sender?.username || m?.sender?.name || "";
 
@@ -1670,6 +1908,13 @@ export default function Chat() {
                                                             {senderName}
                                                         </span>
                                                     ) : null}
+                                                    {hasVideoNote ? (
+                                                        <VideoNoteMessage
+                                                            src={getFileUrl(m.videoNoteUrl)}
+                                                            time={formatTime(m?.createdAt)}
+                                                            isMine={isMine}
+                                                        />
+                                                    ) : (
                                                     <div className={`max-w-[54%] rounded-[18px] px-[13px] py-[8px] shadow-md ${hasAudio || hasFile || isLocation ? "bg-[#182533]" : isMine ? "bg-[#2b5278]" : "bg-[#182533]"}`}
                                                         style={{ maxWidth: isLocation ? "300px" : undefined, padding: isLocation ? "0" : undefined, overflow: isLocation ? "hidden" : undefined }}>
                                                         {isLocation ? (
@@ -1700,6 +1945,7 @@ export default function Chat() {
                                                             </p>
                                                         ) : null}
                                                     </div>
+                                                    )}
                                                 </div>
                                             </div>
                                         );
@@ -1738,7 +1984,24 @@ export default function Chat() {
                                     disabled={selectedGroup?.type === "channel" && !selectedGroup?.admins?.includes?.(myId)}
                                     className="h-[58px] flex-1 rounded-full bg-[#17212b] border border-white/[0.08] px-[24px] text-[18px] text-white outline-none placeholder:text-[#6b7a8d] focus:border-[#6258ff]/50 disabled:opacity-50 transition-colors" />
 
-                                {selectedUser ? (
+                                {selectedUser && !message.trim() ? (
+                                    <>
+                                        {/* Ovozli xabar tugmasi */}
+                                        <button type="button" onClick={handleAudioClick}
+                                            disabled={isSendingAudio || uploadingFile || isRecordingVideoNote}
+                                            className={`flex h-[58px] w-[58px] items-center justify-center rounded-full text-[26px] text-white shadow-lg transition active:scale-95 ${isRecording ? "bg-[#ff3b30] animate-pulse" : "bg-[#303030] hover:bg-[#3b3b3b]"}`}>
+                                            {isSendingAudio ? "⏳" : isRecording ? "⏹" : "🎤"}
+                                        </button>
+                                        {/* Dumalo video xabar tugmasi */}
+                                        <button type="button"
+                                            onClick={startVideoNote}
+                                            disabled={isSendingVideoNote || isRecording || uploadingFile}
+                                            title="Dumalo video xabar"
+                                            className="flex h-[58px] w-[58px] items-center justify-center rounded-full bg-[#303030] text-[26px] text-white shadow-lg transition hover:bg-[#3b3b3b] active:scale-95 disabled:opacity-50">
+                                            {isSendingVideoNote ? "⏳" : "🎥"}
+                                        </button>
+                                    </>
+                                ) : selectedUser ? (
                                     <button type="button" onClick={handleAudioClick}
                                         disabled={isSendingAudio || uploadingFile}
                                         className={`flex h-[58px] w-[58px] items-center justify-center rounded-full text-[26px] text-white shadow-lg transition active:scale-95 ${isRecording ? "bg-[#ff3b30] animate-pulse" : "bg-[#303030] hover:bg-[#3b3b3b]"}`}>
