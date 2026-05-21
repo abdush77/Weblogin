@@ -11,6 +11,115 @@ import {
     toggleCamera,
 } from "../services/webrtc";
 
+// Andijon Polkasi — asosiy melodiya, 138 BPM
+// [chastota_Hz, boshlash_vaqti_s, davomiylik_s]
+const S = 60 / 138 / 2; // 8-nota = 0.217s
+const ANDIJON = [
+    // 1-ibora: ko'tarilish
+    [440.00, 0  * S, S], // A4
+    [493.88, 1  * S, S], // B4
+    [554.37, 2  * S, S], // C#5
+    [587.33, 3  * S, S], // D5
+    [659.25, 4  * S, S * 2], // E5 (chorak)
+    [659.25, 6  * S, S], // E5
+    [587.33, 7  * S, S], // D5
+    // 2-ibora: tushish
+    [554.37, 8  * S, S], // C#5
+    [587.33, 9  * S, S], // D5
+    [659.25, 10 * S, S * 2], // E5
+    [440.00, 12 * S, S * 2], // A4
+    // 3-ibora: o'rta
+    [369.99, 14 * S, S], // F#4
+    [415.30, 15 * S, S], // G#4
+    [440.00, 16 * S, S], // A4
+    [493.88, 17 * S, S], // B4
+    [554.37, 18 * S, S * 2], // C#5
+    [554.37, 20 * S, S], // C#5
+    [493.88, 21 * S, S], // B4
+    // 4-ibora: yakunlovchi
+    [440.00, 22 * S, S], // A4
+    [493.88, 23 * S, S], // B4
+    [554.37, 24 * S, S], // C#5
+    [659.25, 25 * S, S], // E5
+    [880.00, 26 * S, S * 4], // A5 — yuqori nota, uzun
+];
+const ANDIJON_LOOP = 31 * S * 1000 + 400; // ms
+
+function useRingtone(active) {
+    const ctxRef = useRef(null);
+    const loopRef = useRef(null);
+    const vibrateRef = useRef(null);
+
+    useEffect(() => {
+        if (!active) { stop(); return; }
+
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        ctxRef.current = ctx;
+
+        const comp = ctx.createDynamicsCompressor();
+        comp.threshold.value = -3;
+        comp.knee.value = 3;
+        comp.ratio.value = 12;
+        comp.attack.value = 0.001;
+        comp.release.value = 0.05;
+        comp.connect(ctx.destination);
+
+        const master = ctx.createGain();
+        master.gain.value = 2.8;
+        master.connect(comp);
+
+        const playNote = (freq, startTime, dur) => {
+            const t = ctx.currentTime + startTime;
+
+            // Dutar / rubob tembri: triangle + garmoniklar
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = "triangle";
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0.0, t);
+            gain.gain.linearRampToValueAtTime(0.85, t + 0.008);
+            gain.gain.setValueAtTime(0.75, t + dur * 0.5);
+            gain.gain.linearRampToValueAtTime(0.0, t + dur);
+            osc.connect(gain); gain.connect(master);
+            osc.start(t); osc.stop(t + dur);
+
+            // Yuqori garmonik — tor tembri
+            const osc2 = ctx.createOscillator();
+            const gain2 = ctx.createGain();
+            osc2.type = "sine";
+            osc2.frequency.value = freq * 3;
+            gain2.gain.setValueAtTime(0.18, t);
+            gain2.gain.exponentialRampToValueAtTime(0.001, t + dur * 0.4);
+            osc2.connect(gain2); gain2.connect(master);
+            osc2.start(t); osc2.stop(t + dur * 0.4);
+        };
+
+        const ring = () => {
+            ANDIJON.forEach(([freq, offset, dur]) => playNote(freq, offset, dur));
+        };
+
+        ring();
+        loopRef.current = setInterval(ring, ANDIJON_LOOP);
+
+        if (navigator.vibrate) {
+            const vib = () => navigator.vibrate([150, 80, 150, 80, 300, 200, 150, 500]);
+            vib();
+            vibrateRef.current = setInterval(vib, ANDIJON_LOOP);
+        }
+
+        return () => stop();
+    }, [active]);
+
+    function stop() {
+        clearInterval(loopRef.current);
+        clearInterval(vibrateRef.current);
+        loopRef.current = null;
+        vibrateRef.current = null;
+        if (ctxRef.current) { ctxRef.current.close().catch(() => {}); ctxRef.current = null; }
+        if (navigator.vibrate) navigator.vibrate(0);
+    }
+}
+
 export default function VideoCallModal() {
     const {
         callStatus,
@@ -22,6 +131,8 @@ export default function VideoCallModal() {
 
     const localRef = useRef(null);
     const remoteRef = useRef(null);
+
+    useRingtone(callStatus === "ringing");
 
     useEffect(() => {
         setStreamCallbacks(

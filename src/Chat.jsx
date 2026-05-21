@@ -183,6 +183,8 @@ export default function Chat() {
     const [loadingGroups, setLoadingGroups] = useState(false);
     const [groupUnread, setGroupUnread] = useState({});
     const [translyatsiyaNotif, setTranslyatsiyaNotif] = useState(null); // { groupId, groupName, callerName }
+    const [lastMessages, setLastMessages] = useState({});
+    const [unreadCounts, setUnreadCounts] = useState({});
 
     // Live location
     const [isLiveLocation, setIsLiveLocation] = useState(false);
@@ -336,6 +338,10 @@ export default function Chat() {
             if (!res.ok) throw new Error(data?.message || "Xabarlar olinmadi");
             const list = Array.isArray(data) ? data : Array.isArray(data?.messages) ? data.messages : Array.isArray(data?.data) ? data.data : [];
             setMessages(list);
+            if (list.length > 0) {
+                setLastMessages((prev) => ({ ...prev, [userId]: list[list.length - 1] }));
+            }
+            setUnreadCounts((prev) => ({ ...prev, [userId]: 0 }));
             const socket = getSocket();
             if (socket) socket.emit("message:read", { senderId: userId });
         } catch (err) {
@@ -381,6 +387,41 @@ export default function Chat() {
             setMessages([]);
         } finally {
             setLoadingMessages(false);
+        }
+    };
+
+    const fetchConversations = async () => {
+        try {
+            const [convoRes, unreadRes] = await Promise.all([
+                fetch(`${API}/api/messages/conversations`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                }),
+                fetch(`${API}/api/messages/unread/count`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                }),
+            ]);
+
+            if (convoRes.ok) {
+                const convos = await convoRes.json();
+                if (Array.isArray(convos)) {
+                    const map = {};
+                    convos.forEach(({ partnerId, lastMessage }) => {
+                        if (partnerId && lastMessage) map[partnerId] = lastMessage;
+                    });
+                    setLastMessages(map);
+                }
+            }
+
+            if (unreadRes.ok) {
+                const counts = await unreadRes.json();
+                if (Array.isArray(counts)) {
+                    const map = {};
+                    counts.forEach(({ _id, count }) => { if (_id) map[_id] = count; });
+                    setUnreadCounts(map);
+                }
+            }
+        } catch (err) {
+            console.log("Conversations fetch:", err.message);
         }
     };
 
@@ -756,6 +797,26 @@ export default function Chat() {
         return new Date(dateString).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     };
 
+    const formatSidebarDate = (dateString) => {
+        if (!dateString) return "";
+        const d = new Date(dateString);
+        const now = new Date();
+        const diffDays = Math.floor((now - d) / 86400000);
+        if (diffDays === 0) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        if (diffDays < 7) return d.toLocaleDateString("uz-UZ", { weekday: "short" });
+        return d.toLocaleDateString("uz-UZ", { day: "2-digit", month: "2-digit" });
+    };
+
+    const getLastMsgPreview = (msg) => {
+        if (!msg) return "";
+        if (msg.text) return msg.text;
+        if (msg.audioUrl) return "🎤 Ovozli xabar";
+        if (msg.videoNoteUrl) return "🎥 Video xabar";
+        if (msg.fileUrl) return `📎 ${msg.fileName || "Fayl"}`;
+        if (msg.type === "location" || msg.type === "live_location") return "📍 Lokatsiya";
+        return "Xabar";
+    };
+
     const formatFileSize = (bytes) => {
         if (!bytes) return "";
         const kb = bytes / 1024;
@@ -799,6 +860,28 @@ export default function Chat() {
             const senderId = newMessage?.sender?._id || newMessage?.sender?.id;
             const receiverId = newMessage?.receiver?._id || newMessage?.receiver?.id;
             const activeId = selectedUser?._id || selectedUser?.id;
+
+            // Update last message preview for the conversation partner
+            const partnerId = senderId === myId ? receiverId : senderId;
+            if (partnerId) {
+                setLastMessages((prev) => ({ ...prev, [partnerId]: newMessage }));
+            }
+
+            // Incoming message from someone NOT currently open → notification + unread badge
+            if (senderId !== myId && senderId !== activeId) {
+                setUnreadCounts((prev) => ({ ...prev, [senderId]: (prev[senderId] || 0) + 1 }));
+                if (Notification.permission === "granted") {
+                    const senderName = newMessage?.sender?.username || newMessage?.sender?.name || "Kimdir";
+                    const msgText = newMessage?.text
+                        || (newMessage?.audioUrl ? "🎤 Ovozli xabar"
+                        : newMessage?.videoNoteUrl ? "🎥 Video xabar"
+                        : newMessage?.fileUrl ? `📎 ${newMessage.fileName || "Fayl"}`
+                        : newMessage?.type === "location" ? "📍 Lokatsiya"
+                        : "Yangi xabar");
+                    new Notification(senderName, { body: msgText, icon: "/favicon.ico" });
+                }
+            }
+
             if (senderId === activeId || receiverId === activeId) appendMessageUnique(newMessage);
         };
 
@@ -1008,7 +1091,7 @@ export default function Chat() {
     }, [token, selectedUser, selectedGroup, myId, setIncomingCall, resetCall]);
 
     useEffect(() => {
-        if (me) { fetchUsers(); fetchGroups(); fetchStories(); }
+        if (me) { fetchUsers(); fetchGroups(); fetchStories(); fetchConversations(); }
     }, [me]);
 
     useEffect(() => {
@@ -1049,11 +1132,20 @@ export default function Chat() {
 
     // ──────────────────────── Derived ────────────────────────
 
-    const visibleUsers = users.filter((u) => {
-        const uid = u._id || u.id;
-        const name = getUserName(u).toLowerCase();
-        return !archivedIds.includes(uid) && !blockedIds.includes(uid) && !deletedIds.includes(uid) && name.includes(search.toLowerCase());
-    });
+    const visibleUsers = users
+        .filter((u) => {
+            const uid = u._id || u.id;
+            const name = getUserName(u).toLowerCase();
+            return !archivedIds.includes(uid) && !blockedIds.includes(uid) && !deletedIds.includes(uid) && name.includes(search.toLowerCase());
+        })
+        .sort((a, b) => {
+            const aTime = lastMessages[a._id || a.id]?.createdAt;
+            const bTime = lastMessages[b._id || b.id]?.createdAt;
+            if (!aTime && !bTime) return 0;
+            if (!aTime) return 1;
+            if (!bTime) return -1;
+            return new Date(bTime) - new Date(aTime);
+        });
 
     const archivedUsers = users.filter((u) => {
         const uid = u._id || u.id;
@@ -1084,7 +1176,10 @@ export default function Chat() {
         setMessage("");
         socket.emit("typing:stop", { receiverId });
         socket.emit("message:send", { receiverId, text }, (response) => {
-            if (response?.message) appendMessageUnique(response.message);
+            if (response?.message) {
+                appendMessageUnique(response.message);
+                setLastMessages((prev) => ({ ...prev, [receiverId]: response.message }));
+            }
         });
     };
 
@@ -1376,6 +1471,8 @@ export default function Chat() {
         const uid = u?._id || u?.id;
         const active = (selectedUser?._id || selectedUser?.id) === uid;
         const online = onlineIds.includes(uid);
+        const lastMsg = lastMessages[uid];
+        const unread = unreadCounts[uid] || 0;
         return (
             <div className={`group relative flex h-[78px] w-full items-center px-[12px] transition ${active ? "bg-[#2b5278]/30" : "hover:bg-white/[0.05]"}`}>
                 <button type="button"
@@ -1387,17 +1484,24 @@ export default function Chat() {
                             {getInitial(getUserName(u))}
                         </div>
                         <span className={`absolute bottom-[1px] right-[1px] h-[12px] w-[12px] rounded-full border-[2px] border-[#111217] ${online ? "bg-[#2ee86f]" : "bg-[#7d8294]"}`} />
+                        {unread > 0 ? (
+                            <span className="absolute -top-[2px] -right-[2px] flex h-[20px] min-w-[20px] items-center justify-center rounded-full bg-[#6258ff] px-[5px] text-[11px] font-bold text-white">
+                                {unread > 99 ? "99+" : unread}
+                            </span>
+                        ) : null}
                     </div>
                     <div className="min-w-0 flex-1 border-b border-white/[0.06] py-[10px]">
                         <div className="flex items-center justify-between gap-2">
                             <h3 className="truncate text-[16px] font-semibold text-white">{getUserName(u)}</h3>
-                            <span className="shrink-0 text-[12px] text-[#858b9b]">{online ? "now" : "Fri"}</span>
+                            <span className="shrink-0 text-[12px] text-[#858b9b]">
+                                {formatSidebarDate(lastMsg?.createdAt) || (online ? "now" : "")}
+                            </span>
                         </div>
                         <div className="mt-[4px] flex items-center justify-between gap-2">
-                            <p className="truncate text-[13px] text-[#8b91a4]">
-                                {archived ? "Archived" : online ? "Online" : "Offline"}
+                            <p className={`truncate text-[13px] ${unread > 0 ? "font-semibold text-white" : "text-[#8b91a4]"}`}>
+                                {archived ? "Archived" : lastMsg ? getLastMsgPreview(lastMsg) : online ? "Online" : "Offline"}
                             </p>
-                            <span className="text-[13px] text-[#777d8f]">★</span>
+                            {unread === 0 ? <span className="text-[13px] text-[#777d8f]">★</span> : null}
                         </div>
                     </div>
                 </button>
