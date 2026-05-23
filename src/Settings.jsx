@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { usePWAInstall } from "./components/PWAInstallButton";
+import DownloadButtons from "./components/DownloadButtons";
 
 const DEFAULT_PASSWORD = "abdush2717";
 
 export default function Settings() {
     const navigate = useNavigate();
+    const { canInstall, installed, install } = usePWAInstall();
 
     const savedPassword = localStorage.getItem("settingsPassword") || DEFAULT_PASSWORD;
 
@@ -47,8 +50,8 @@ export default function Settings() {
 
     if (!isUnlocked) {
         return (
-            <div className="min-h-screen bg-[#0e1621] flex items-center justify-center text-white">
-                <div className="w-[390px] rounded-[18px] bg-[#17212b] border border-white/10 shadow-2xl overflow-hidden">
+            <div className="min-h-screen bg-[#0e1621] flex items-center justify-center text-white px-4">
+                <div className="w-full max-w-[390px] rounded-[18px] bg-[#17212b] border border-white/10 shadow-2xl overflow-hidden">
                     <div className="h-[58px] flex items-center gap-4 px-5 bg-[#1f2c39]">
                         <button
                             onClick={() => navigate("/chat")}
@@ -56,7 +59,7 @@ export default function Settings() {
                         >
                             ×
                         </button>
-                        <h1 className="text-[20px] font-semibold">Настройки</h1>
+                        <h1 className="text-[20px] font-semibold">Sozlamalar</h1>
                     </div>
 
                     <div className="p-6">
@@ -109,7 +112,7 @@ export default function Settings() {
                         >
                             ‹
                         </button>
-                        <h1 className="text-[21px] font-semibold">Настройки</h1>
+                        <h1 className="text-[21px] font-semibold">Sozlamalar</h1>
                     </div>
 
                     <div className="flex items-center gap-5 text-[#8ea2b5] text-[24px]">
@@ -135,33 +138,42 @@ export default function Settings() {
                 <div className="py-2">
                     <div className="flex items-center gap-5 px-7 h-[54px] hover:bg-white/5">
                         <span className="text-[25px] text-[#9dafbf]">☻</span>
-                        <span className="text-[17px]">Мой аккаунт</span>
+                        <span className="text-[17px]">Mening akkauntim</span>
                     </div>
 
                     <div className="flex items-center gap-5 px-7 h-[54px] hover:bg-white/5">
                         <span className="text-[25px] text-[#9dafbf]">🔔</span>
-                        <span className="text-[17px]">Уведомления и звуки</span>
+                        <span className="text-[17px]">Bildirishnomalar va ovoz</span>
                     </div>
 
                     <div className="flex items-center gap-5 px-7 h-[54px] hover:bg-white/5">
                         <span className="text-[25px] text-[#9dafbf]">🔒</span>
-                        <span className="text-[17px]">Конфиденциальность</span>
+                        <span className="text-[17px]">Maxfiylik</span>
                     </div>
 
                     <div className="flex items-center gap-5 px-7 h-[54px] hover:bg-white/5">
                         <span className="text-[25px] text-[#9dafbf]">💬</span>
-                        <span className="text-[17px]">Настройки чатов</span>
+                        <span className="text-[17px]">Chat sozlamalari</span>
                     </div>
 
                     <div className="flex items-center gap-5 px-7 h-[54px] hover:bg-white/5">
                         <span className="text-[25px] text-[#9dafbf]">📁</span>
-                        <span className="text-[17px]">Папки с чатами</span>
+                        <span className="text-[17px]">Chat papkalari</span>
                     </div>
 
                     <div className="flex items-center gap-5 px-7 h-[54px] hover:bg-white/5">
                         <span className="text-[25px] text-[#9dafbf]">🎙</span>
-                        <span className="text-[17px]">Звук и камера</span>
+                        <span className="text-[17px]">Ovoz va kamera</span>
                     </div>
+
+                    {installed ? (
+                        <div className="flex items-center gap-5 px-7 h-[54px]">
+                            <span className="text-[25px]">✅</span>
+                            <span className="text-[17px] text-[#2ee86f]">Ilova o'rnatilgan</span>
+                        </div>
+                    ) : (
+                        <PWAInstallRow canInstall={canInstall} install={install} />
+                    )}
                 </div>
 
                 <div className="h-[10px] bg-[#101b25]" />
@@ -230,10 +242,102 @@ export default function Settings() {
                         onClick={changePassword}
                         className="mt-4 h-[46px] w-full rounded-[10px] bg-[#5288c1] text-[16px] font-semibold active:scale-[0.98]"
                     >
-                        Parolni o‘zgartirish
+                        Parolni o’zgartirish
                     </button>
                 </div>
             </div>
         </div>
+    );
+}
+
+function PWAInstallRow({ canInstall, install }) {
+    const [show, setShow] = useState(false);
+    const [installing, setInstalling] = useState(false);
+    const [done, setDone] = useState(false);
+
+    const handleClick = async () => {
+        if (done) return;
+        if (canInstall) {
+            setInstalling(true);
+            const prompt = window._pwaPrompt;
+            if (prompt) {
+                await prompt.prompt();
+                const { outcome } = await prompt.userChoice;
+                if (outcome === "accepted") {
+                    setDone(true);
+                    window._pwaPrompt = null;
+                }
+            }
+            setInstalling(false);
+        } else {
+            setShow(true);
+        }
+    };
+
+    return (
+        <>
+            <button
+                type="button"
+                onClick={handleClick}
+                className="flex w-full items-center gap-5 px-7 h-[54px] hover:bg-white/5 text-left transition-colors"
+            >
+                <span className="text-[25px]">{done ? "✅" : installing ? "⏳" : "📲"}</span>
+                <span className={`text-[17px] flex-1 ${done ? "text-[#2ee86f]" : ""}`}>
+                    {done ? "O’rnatildi" : installing ? "O’rnatilmoqda..." : "Ilovani o’rnatish"}
+                </span>
+                {!done && (
+                    <span style={{
+                        fontSize: 11, fontWeight: 600,
+                        color: canInstall ? "#a78bfa" : "rgba(255,255,255,0.35)",
+                        background: canInstall ? "rgba(134,59,255,0.15)" : "rgba(255,255,255,0.06)",
+                        border: `1px solid ${canInstall ? "rgba(134,59,255,0.35)" : "rgba(255,255,255,0.1)"}`,
+                        borderRadius: 20, padding: "2px 10px",
+                    }}>
+                        {canInstall ? "Tayyor" : "Yo’riqnoma"}
+                    </span>
+                )}
+            </button>
+
+            {show && (
+                <div
+                    onClick={() => setShow(false)}
+                    style={{
+                        position: "fixed", inset: 0, zIndex: 9999,
+                        background: "rgba(0,0,0,0.75)", backdropFilter: "blur(8px)",
+                        display: "flex", alignItems: "flex-end", justifyContent: "center",
+                    }}
+                >
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: "100%", maxWidth: 500,
+                            background: "linear-gradient(180deg,#1c1040,#0d0920)",
+                            border: "1px solid rgba(134,59,255,0.25)",
+                            borderRadius: "22px 22px 0 0",
+                            padding: "6px 22px 44px",
+                        }}
+                    >
+                        <div style={{ width: 36, height: 4, background: "rgba(255,255,255,0.15)", borderRadius: 2, margin: "10px auto 18px" }} />
+                        <p style={{ color: "#fff", fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Ilovani o’rnatish</p>
+                        <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, marginBottom: 20 }}>Qurilmangizga o’rnatish yo’riqnomasi</p>
+
+                        <DownloadButtons />
+
+                        <button
+                            onClick={() => setShow(false)}
+                            style={{
+                                marginTop: 16, width: "100%", padding: 13,
+                                borderRadius: 13, border: "none",
+                                background: "rgba(255,255,255,0.07)",
+                                color: "rgba(255,255,255,0.6)", fontWeight: 600,
+                                fontSize: 15, cursor: "pointer",
+                            }}
+                        >
+                            Yopish
+                        </button>
+                    </div>
+                </div>
+            )}
+        </>
     );
 }
